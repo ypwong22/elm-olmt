@@ -1,4 +1,5 @@
 # directories for temporary storage / user customisation
+out/*
 scripts/
 temp/*
 plots/

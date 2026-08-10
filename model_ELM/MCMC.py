@@ -91,14 +91,17 @@ def estimate_burnin(sampler, labels_model):
 
 #-------------------------------- MCMC ------------------------------------------------------
 
-def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False):
+def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False, multiprefix=[]):
     # Check if all_sites is defined, otherwise use single site
     if multisite and hasattr(self, 'all_sites') and self.all_sites is not None:
         sites = self.all_sites
         nsites = len(sites)
+        if len(multiprefix)==0:
+          multiprefix = [self.caseid]*nsites
     else:
         sites = [self.site]
         nsites = 1
+        multiprefix = [self.caseid]
     
     pmin, pmax, nparms_ensemble = self.ensemble_pmin, self.ensemble_pmax, \
         self.nparms_ensemble
@@ -107,18 +110,35 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False)
     obs_err = {}
     thiscase={}
     
-    for s in sites:
+    for s,prefix in zip(sites, multiprefix):
         if s == self.site:
             obs[s] = self.obs.copy()
             obs_err[s] = self.obs_err.copy()
             run_surrogate[s] = self.run_surrogate
         else:
+
             from model_ELM import ELMcase
             #Get the case objects for other sites
-            thiscase[s] = ELMcase(casename=self.casename.replace(self.site, s))
+            thiscase[s] = ELMcase(casename=self.casename.replace(self.site, s).replace(self.caseid, prefix))
             run_surrogate[s] = thiscase[s].run_surrogate
             obs[s] = thiscase[s].obs.copy()
             obs_err[s] = thiscase[s].obs_err.copy()
+
+    #Check the surrogate output length against the observation length.  These are
+    #built independently (model output from postprocessing, obs from get_fluxnet_obs)
+    #but log_posterior indexes the output with a mask built from the obs, so a
+    #mismatch raises inside its try block and returns -inf for every proposal.
+    #Fail loudly here instead of producing a silently degenerate chain.
+    for s in sites:
+        thisoutput = self.output if s == self.site else thiscase[s].output
+        for v in myvars:
+            if v not in thisoutput:
+                raise KeyError('Variable '+v+' not found in model output for site '+s)
+            nqoi = thisoutput[v].shape[0]
+            nobs = len(obs[s][v])
+            if (nqoi != nobs):
+                raise ValueError('Length mismatch for '+v+' at site '+s+': surrogate '
+                    'output has '+str(nqoi)+' timesteps but observations have '+str(nobs))
 
     #Add parameters to estimate observation error stddev
     nerr_parms = 0    
@@ -160,8 +180,27 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False)
     burnin = estimate_burnin(sampler, labels_model)
     print(f"Using burn-in of {burnin} steps out of {nsteps} total steps ({burnin/nsteps*100:.1f}%)")
     
+    MCMC_out = self.UQ_output + '/MCMC_output/'
+    if (multisite):
+        MCMC_out = MCMC_out+'/multisite/'
+    os.makedirs(MCMC_out, exist_ok=True)
+
     samples = sampler.get_chain(discard=burnin, thin=5, flat=True)
     log_probs = sampler.get_log_prob(discard=burnin, thin=5, flat=True)
+
+    #Save the posterior parameter samples and their log posterior.  Columns are
+    #named in the header; the first n_model_parms are the model parameters, any
+    #remaining sigma_* columns are the fitted observation error parameters.
+    #Two header rows: the parameter name, then the PFT index that column applies to.
+    #The sigma_* and log_posterior columns are not PFT-specific and get 'NA'.
+    chain_file = MCMC_out+'/posterior_parameters.txt'
+    pft_labels = [str(p) for p in self.ensemble_pfts[:n_model_parms]] + ['NA']*(nerr_parms+1)
+    chain_header = ' '.join(ensemble_parms+['log_posterior'])+'\n'+' '.join(pft_labels)
+    #'%s' gives the shortest round-trip repr, matching the precision of best_params.txt
+    np.savetxt(chain_file, np.column_stack((samples, log_probs)), fmt='%s',
+        header=chain_header)
+    print('Wrote '+str(samples.shape[0])+' posterior parameter samples to '+chain_file)
+
     best_idx = np.argmax(log_probs)
     best_parms = samples[best_idx, :n_model_parms]
     print("Mean of each parameter:")
@@ -176,9 +215,6 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False)
         print(best_err_parms)
 
     # Plot histograms for each parameter
-    MCMC_out = self.UQ_output + '/MCMC_output/'
-    if (multisite):
-        MCMC_out = MCMC_out+'/multisite/'
     outdir = MCMC_out+'/plots/pdfs'
     os.makedirs(outdir, exist_ok=True)
     for i in range(samples.shape[1]):
@@ -230,8 +266,19 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False)
         if (multisite):
             outdir_pred = outdir_pred+s
         os.makedirs(outdir_pred, exist_ok=True)
-        
+
+        #Data files go alongside the plots, not inside them
+        outdir_samples = MCMC_out + '/posterior_samples/'
+        if (multisite):
+            outdir_samples = outdir_samples+s
+        os.makedirs(outdir_samples, exist_ok=True)
+
         for v in myvars:
+            #Save the full posterior predictive ensemble, shape (nsamples, ntimesteps)
+            pred_file = f'{outdir_samples}/posterior_predictions_{v}.txt'
+            np.savetxt(pred_file, output_dict[v], fmt='%.6g')
+            print('Wrote posterior predictions '+str(output_dict[v].shape)+' to '+pred_file)
+
             # Compute percentiles from MCMC samples
             lower = np.percentile(output_dict[v], 2.5, axis=0)
             upper = np.percentile(output_dict[v], 97.5, axis=0)
@@ -484,8 +531,9 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False)
     out_txt = MCMC_out + '/best_params.txt'
     with open(out_txt, 'w') as f:
         for i, pname in enumerate(labels_model):
-            f.write(f"{pname} {best_parms[i]}\n")
-    
+            pft_idx = self.ensemble_pfts[i]
+            f.write(f"{pname} {pft_idx} {best_parms[i]}\n")
+
 def write_best_params_to_clm(self, best_parms, labels_model, out_nc_path):
     #TODO:  allow updating FATES parameters
     # Path to template parameter file (first ensemble member)

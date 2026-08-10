@@ -1,17 +1,11 @@
 #!/usr/bin/env python
 import re, sys
-from OLMTutils import (
-    get_machine_info,
-    get_site_info,
-    get_point_list,
-    get_default_diag_vars,
-    pathfinder_compute_node_error,
-)
+import model_ELM
+from OLMTutils import get_machine_info, get_site_info, get_point_list, get_default_diag_vars
 import os, glob
 import numpy as np
 import configparser
 import argparse
-import importlib.util
 
 def load_config(config_file):
     """Load configuration from file and return as dictionary"""
@@ -37,7 +31,7 @@ def load_config(config_file):
                 cfg[section][key] = value.lower() == 'true'
             elif not ',' in value:
                 # Handle single values
-                if value.isdigit() or key in ['hist_nhtfrq', 'nhtfrq', 'hist_mfilt', 'mfilt']:
+                if value.isdigit() or 'hist_nhtfrq' in key:
                     cfg[section][key] = int(value)
                 elif value.replace('.', '').replace('-', '').isdigit():
                     cfg[section][key] = float(value)
@@ -55,7 +49,7 @@ def load_config(config_file):
                 # Try to convert to numeric types
                 try:
                     # Try int first
-                    if key in ['hist_nhtfrq', 'nhtfrq', 'hist_mfilt', 'mfilt']:
+                    if key in ['hist_nhtfrq', 'hist_mfilt']:
                         # Store as comma-separated string for Fortran namelist
                         cfg[section][key] = ', '.join(str(int(x)) for x in items)
                     else:
@@ -147,11 +141,6 @@ def main():
     machine_name = cfg['machine'].get('machine_name', '')
     machine, rootdir, inputdata, queue, project, hostname, apptainer_bind = \
         get_machine_info(machine_name=machine_name)
-    try:
-        pathfinder_compute_node_error(machine, configured_machine_name=machine_name)
-    except RuntimeError as err:
-        print('ERROR: '+str(err), file=sys.stderr)
-        sys.exit(1)
     print('Machine: '+machine+'\n')
     
     # Override machine defaults with config values if provided
@@ -177,7 +166,6 @@ def main():
     metdir = cfg['simulation'].get('metdir', '')
     case_suffix = cfg['simulation'].get('case_suffix', '')
     case_prefix = cfg['simulation'].get('case_prefix', '')
-    emulator_enabled = cfg['simulation'].get('emulator', False)
 
     # Site configuration
     if runtype == 'site':
@@ -190,7 +178,6 @@ def main():
         lon_bounds = [-90, 90]
     else:
         sites = ['']
-        sitegroup=''
         region_name = cfg['simulation'].get('name','global')
         numproc = cfg['simulation']['numproc']
         if runtype == 'latlon_list':
@@ -291,7 +278,6 @@ def main():
         postproc_freq = cfg['postprocessing'].get('frequency', 'monthly')
         postproc_pfts = cfg['postprocessing'].get('pfts', [0])
         postproc_cols = cfg['postprocessing'].get('cols', [0])
-        postproc_topounit = cfg['postprocessing'].get('topounit', -1)
         postproc_timeaverage = cfg['postprocessing'].get('timeaverage', 1)
         sens_plot_ntimesteps = cfg['postprocessing'].get('sens_plot_ntimesteps', None)
 
@@ -311,16 +297,15 @@ def main():
         has_obs = True
 
 
-    if not emulator_enabled:
-        # Remove specific file types from temp directory
-        temp_dir = 'temp'
-        for pattern in ['*.nc', '*.tmp']:
-            files_to_remove = glob.glob(os.path.join(temp_dir, pattern))
-            for file_path in files_to_remove:
-                try:
-                    os.remove(file_path)
-                except OSError as e:
-                    print(f"Warning: Could not remove {file_path}: {e}")
+    # Remove specific file types from temp directory
+    temp_dir = 'temp'
+    for pattern in ['*.nc', '*.tmp']:
+        files_to_remove = glob.glob(os.path.join(temp_dir, pattern))
+        for file_path in files_to_remove:
+            try:
+                os.remove(file_path)
+            except OSError as e:
+                print(f"Warning: Could not remove {file_path}: {e}")
 
     if (runtype == 'site'):
         # Check to see if all reqested sites exist
@@ -446,52 +431,6 @@ def main():
     elif len(sites) > 1 and resubmit_years:
         print('Multi-site resubmit interval: '+str(resubmit_years)+' years\n')
 
-    if emulator_enabled:
-        emulator_adapter_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            'model_ELM',
-            'emulator.py',
-        )
-        emulator_adapter_spec = importlib.util.spec_from_file_location(
-            'olmt_emulator_adapter',
-            emulator_adapter_path,
-        )
-        if emulator_adapter_spec is None or emulator_adapter_spec.loader is None:
-            raise ImportError('Could not load ELM emulator adapter: '+emulator_adapter_path)
-        emulator_adapter = importlib.util.module_from_spec(emulator_adapter_spec)
-        emulator_adapter_spec.loader.exec_module(emulator_adapter)
-
-        emulator_adapter.run_emulator_cases(
-            cfg=cfg,
-            sites=sites,
-            siteinfo=siteinfo if sites[0] != '' else {},
-            point_list=point_list,
-            runtype=runtype,
-            region_name=region_name,
-            mettype=mettype,
-            metdir=metdir,
-            use_cpl_bypass=use_cpl_bypass,
-            inputdata=inputdata,
-            runroot=runroot,
-            caseroot=caseroot,
-            modelroot=modelroot,
-            compsets=compsets,
-            suffix=suffix,
-            case_suffix=case_suffix,
-            startyear=startyear,
-            nyears=nyears,
-            depends=depends,
-            istreatment=istreatment,
-            treatment_options=treatment_options,
-            case_options=case_options,
-            lat_bounds=lat_bounds,
-            lon_bounds=lon_bounds,
-            scriptdir=os.getcwd(),
-        )
-        return
-
-    import model_ELM
-
     nsites = len(sites)
     jobnum = np.zeros(len(compsets),int)  #list of submitted job ids
 
@@ -509,7 +448,7 @@ def main():
             res=res, nyears=nyears[c],startyear=startyear[c], region_name=region_name, \
             lat_bounds=lat_bounds, lon_bounds=lon_bounds, np=numproc, point_list=point_list, \
             olmtdir=scriptdir, walltime=walltime, apptainer=apptainer, apptainer_bind=apptainer_bind, \
-            offline_driver=offline_driver, resubmit_years=resubmit_years, debug=debug, sitegroup=sitegroup)
+            offline_driver=offline_driver, resubmit_years=resubmit_years, debug=debug)
         #Save the other site names in first site's cases (for use in multi-site calibration)
         if site == sites[-1]:
             cases[c].all_sites = [s for s in sites]
@@ -521,9 +460,8 @@ def main():
             cases[c].siteinfo = siteinfo[site]
 
         # Get the namelist options for this case
-        whole_list_case_options = ['peatlands_upland_pfts', 'peatlands_upland_pft_fractions']
         for key in case_options.keys():
-            if isinstance(case_options[key], list) and key not in whole_list_case_options:
+            if isinstance(case_options[key], list):
                 cases[c].case_options[key] = case_options[key][c]
             else:
                 cases[c].case_options[key] = case_options[key]
@@ -584,7 +522,6 @@ def main():
             cases[c].postproc_freq = postproc_freq
             cases[c].postproc_pfts = postproc_pfts
             cases[c].postproc_cols = postproc_cols
-            cases[c].postproc_topounit = postproc_topounit
             cases[c].postproc_timeaverage = postproc_timeaverage
             cases[c].sens_plot_ntimesteps = sens_plot_ntimesteps
             # Also get the observations if requested, use postproc

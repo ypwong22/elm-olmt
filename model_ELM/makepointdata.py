@@ -6,12 +6,6 @@ from geopy.distance import geodesic
 from scipy.spatial import KDTree
 import xarray as xr
 
-PEATLANDS_UPLAND_SOURCE_TOPOUNIT = 3
-PEATLANDS_UPLAND_PFT_FRACTIONS = {
-    2: 50.0,
-    13: 50.0,
-}
-
 
 #Function to return the indices of the nearest grid cell centers for a list of points
 def get_pointindices_list(self, mylat, mylon, lat_grid, lon_grid, mask_grid=[]):
@@ -36,7 +30,7 @@ def get_pointindices_list(self, mylat, mylon, lat_grid, lon_grid, mask_grid=[]):
         nearest_point = points[index]
         distance_km = geodesic(target_point, nearest_point).kilometers
         if (distance_km < 250):
-            if (len(original_shape) > 1 and min(original_shape) > 1):
+            if (len(original_shape) > 1):
                 # Convert the flattened index to a 2D index (row, column)
                 row, col = np.unravel_index(index, original_shape)  
                 index_out.append((row, col))
@@ -65,7 +59,7 @@ def get_pointindices_bbox(self, lat_bounds, lon_bounds, lat_grid, lon_grid, mask
     for index, (lat, lon) in enumerate(points):
         if lat_bounds[0] <= lat <= lat_bounds[1] and lon_bounds[0] <= lon <= lon_bounds[1] \
                 and maskf[index] > 0:
-            if (len(original_shape) > 1 and min(original_shape) > 1):
+            if (len(original_shape) > 1):
                 # Convert the flattened index to a 2D index (row, col)
                 row, col = np.unravel_index(index, original_shape)
                 index_out.append((row, col))
@@ -81,39 +75,22 @@ def subset_netcdf(self, index, input_file, output_file, keep2d=False):
     # Ensure index is always a list for consistent handling
     if not isinstance(index, list):
         index = [index]
-    if len(index) == 0:
-        original_ds.close()
-        raise ValueError(f'No grid cells selected while subsetting {input_file}')
 
     # Check if index contains tuples (2D) or integers (1D)
     is_2d_index = len(index) > 0 and isinstance(index[0], (tuple, list))
-    if is_2d_index:
-        lat_indices = [lat for lat, lon in index]
-        lon_indices = [lon for lat, lon in index]
-    else:
-        point_indices = np.asarray(index, dtype=int)
-
-    if not is_2d_index:
-        indexers = {}
-        if 'ni' in original_ds.dims:
-            indexers['ni'] = xr.DataArray(point_indices, dims='ni')
-        if 'gridcell' in original_ds.dims:
-            indexers['gridcell'] = xr.DataArray(point_indices, dims='gridcell')
-        if indexers:
-            ds_subset = original_ds.isel(indexers).load()
-            original_ds.close()
-            ds_subset.to_netcdf(output_file)
-            ds_subset.close()
-            return
 
     # Select the variable and apply subsetting if specified
     for var_name, var_data in original_ds.data_vars.items():
         if ('lsmlat' in var_data.dims and 'lsmlon' in var_data.dims):
             if is_2d_index:
               if keep2d:
+                lat_indices = [lat for lat, lon in index]
+                lon_indices = [lon for lat, lon in index]
                 var_subset = var_data.isel(lsmlat=slice(min(lat_indices), max(lat_indices)+1),
                                            lsmlon=slice(min(lon_indices), max(lon_indices)+1))
               else:
+                lat_indices = [lat for lat, lon in index]
+                lon_indices = [lon for lat, lon in index]
                 var_subset = var_data.isel(lsmlat=xr.DataArray(lat_indices, dims='gridcell'),
                                            lsmlon=xr.DataArray(lon_indices, dims='gridcell'))
             else:
@@ -121,51 +98,32 @@ def subset_netcdf(self, index, input_file, output_file, keep2d=False):
         elif ('lat' in var_data.dims and 'lon' in var_data.dims):
             if is_2d_index:
               if keep2d:
+                lat_indices = [lat for lat, lon in index]
+                lon_indices = [lon for lat, lon in index]
                 var_subset = var_data.isel(lat=slice(min(lat_indices), max(lat_indices)+1),
                                            lon=slice(min(lon_indices), max(lon_indices)+1))
               else:
+                lat_indices = [lat for lat, lon in index]
+                lon_indices = [lon for lat, lon in index]
                 var_subset = var_data.isel(lat=xr.DataArray(lat_indices, dims='gridcell'),
                                            lon=xr.DataArray(lon_indices, dims='gridcell'))
             else:
                 var_subset = var_data
         elif ('ni' in var_data.dims and 'nj' in var_data.dims):
               #Domain file
-              if not is_2d_index:
-                # Vector-domain files commonly have dimensions (nj=1, ni=ncell).
-                # In that case bbox/list selection returns 1D ni indices; subset
-                # ni directly and preserve nj so the domain and surfdata cell
-                # counts remain consistent.
-                var_subset = var_data.isel(ni=xr.DataArray(point_indices, dims='ni'))
-              elif keep2d:
+              if keep2d:
                 # Use original 2D indexing
+                lat_indices = [lat for lat, lon in index]
+                lon_indices = [lon for lat, lon in index]
                 var_subset = var_data.isel(nj=slice(min(lat_indices), max(lat_indices)+1),
                                            ni=slice(min(lon_indices), max(lon_indices)+1))
               else:
                 # Flatten to 1D
-                var_subset = var_data.isel(nj=xr.DataArray(lat_indices, dims='gridcell'),
-                                           ni=xr.DataArray(lon_indices, dims='gridcell'))
+                var_subset = var_data.isel(nj=xr.DataArray([lat for lat, lon in index], dims='gridcell'),
+                                           ni=xr.DataArray([lon for lat, lon in index], dims='gridcell'))
                 var_subset = var_subset.rename({'gridcell': 'ni'})
                 var_subset = var_subset.expand_dims(dim={'nj': [1]})
                 var_subset = var_subset.transpose('nj', ...)
-        elif ('ni' in var_data.dims):
-            # Domain corner/bounds variables such as xv(nv, ni) and yv(nv, ni)
-            # also need ni subsetting. Leaving them untouched can force the
-            # output domain back to the global/vector cell count.
-            if is_2d_index:
-                if keep2d:
-                    var_subset = var_data.isel(ni=slice(min(lon_indices), max(lon_indices)+1))
-                else:
-                    var_subset = var_data.isel(ni=xr.DataArray(lon_indices, dims='ni'))
-            else:
-                var_subset = var_data.isel(ni=xr.DataArray(point_indices, dims='ni'))
-        elif ('nj' in var_data.dims):
-            if is_2d_index:
-                if keep2d:
-                    var_subset = var_data.isel(nj=slice(min(lat_indices), max(lat_indices)+1))
-                else:
-                    var_subset = var_data.isel(nj=xr.DataArray(lat_indices, dims='nj'))
-            else:
-                var_subset = var_data
         elif ('gridcell' in var_data.dims):
             #Source dataset is 1D, simply extract
             #var_subset = var_data.isel({gridcell: index})
@@ -180,7 +138,6 @@ def setpfts(self, ds, pct_pft, zerootherlandunits=True, year=None, first_baregro
     #If year is specified, set PCT_NAT_PFT for that year and all years after
     # Make a copy to avoid view assignment issues
     ds = ds.copy()
-    ds, pct_pft = self.normalize_pct_nat_pft(ds, pct_pft)
     if year is not None and 'time' in ds.dims:
         # Find the time index for the specified year
         years = ds['time'].values
@@ -233,286 +190,6 @@ def setpfts(self, ds, pct_pft, zerootherlandunits=True, year=None, first_baregro
                 arr.values[tuple(idx_nat0)] = 100.0
     return ds
 
-
-def peatlands_target_topounits(self):
-    """Return zero-based topounit indices that should receive site Peatlands PFTs."""
-    if self.is_peatlands_upland_only():
-        return [0]
-    if not hasattr(self, 'siteinfo'):
-        return []
-    topoindex = int(str(self.siteinfo.get('topounit', -1)).strip().strip("'\""))
-    if topoindex < 0:
-        return []
-    return [topoindex]
-
-
-def is_peatlands_upland_only(self):
-    value = getattr(self, 'case_options', {}).get('peatlands_upland_only', False)
-    if isinstance(value, str):
-        return value.strip().strip("'\"").lower() in ['true', '.true.', 't', '1', 'yes', 'y']
-    return bool(value)
-
-
-def peatlands_upland_source_topounit(self):
-    value = getattr(self, 'case_options', {}).get(
-        'peatlands_upland_topounit',
-        PEATLANDS_UPLAND_SOURCE_TOPOUNIT
-    )
-    return int(str(value).strip().strip("'\""))
-
-
-def peatlands_upland_pct_pft(self, natpft_size):
-    pft_fractions = PEATLANDS_UPLAND_PFT_FRACTIONS.copy()
-    case_options = getattr(self, 'case_options', {})
-    if 'peatlands_upland_pft_fractions' in case_options:
-        spec = case_options['peatlands_upland_pft_fractions']
-        if isinstance(spec, str):
-            spec = [value.strip() for value in spec.split(',')]
-        if len(spec) % 2 != 0:
-            raise ValueError('peatlands_upland_pft_fractions must be pft,pct pairs')
-        pft_fractions = {}
-        for i in range(0, len(spec), 2):
-            pft_fractions[int(spec[i])] = float(spec[i + 1])
-    elif 'peatlands_upland_pfts' in case_options:
-        spec = case_options['peatlands_upland_pfts']
-        if isinstance(spec, str):
-            spec = [value.strip() for value in spec.split(',')]
-        pft_indices = [int(value) for value in spec]
-        if len(pft_indices) == 0:
-            raise ValueError('peatlands_upland_pfts must include at least one PFT index')
-        pct = 100.0 / len(pft_indices)
-        pft_fractions = {pft_index: pct for pft_index in pft_indices}
-
-    pct_values = np.zeros(natpft_size, dtype=float)
-    for pft_index, pct in pft_fractions.items():
-        if pft_index < 0 or pft_index >= natpft_size:
-            raise ValueError(
-                f'Peatlands upland PFT index {pft_index} is outside natpft size {natpft_size}'
-            )
-        pct_values[pft_index] = pct
-    pct_sum = np.sum(pct_values)
-    if pct_sum <= 0.0:
-        raise ValueError('Peatlands upland PFT fractions must sum to a positive value')
-    pct_values *= 100.0 / pct_sum
-    return xr.DataArray(pct_values, dims=['natpft'])
-
-
-def set_peatlands_site_pfts(self, ds, pct_pft, zerootherlandunits=True):
-    """Set Peatlands site PFTs only on their requested topounit."""
-    ds = ds.copy()
-    if self.is_peatlands_upland_only():
-        pct_pft = self.peatlands_upland_pct_pft(ds['PCT_NAT_PFT'].sizes['natpft'])
-    ds, pct_pft = self.normalize_pct_nat_pft(ds, pct_pft)
-    target_topounits = self.peatlands_target_topounits()
-    if 'topounit' not in ds['PCT_NAT_PFT'].dims or len(target_topounits) == 0:
-        return self.setpfts(ds, pct_pft, zerootherlandunits=zerootherlandunits)
-
-    arr = ds['PCT_NAT_PFT']
-    dims = list(arr.dims)
-    top_i = dims.index('topounit')
-    nat_i = dims.index('natpft')
-    values = arr.values.copy()
-    pct_values = pct_pft.values
-    for topoindex in target_topounits:
-        if topoindex < 0 or topoindex >= arr.sizes['topounit']:
-            raise IndexError(
-                f"Peatlands topounit index {topoindex} is outside surface topounit "
-                f"dimension size {arr.sizes['topounit']}"
-            )
-        idx_zero = [slice(None)] * arr.ndim
-        idx_zero[top_i] = topoindex
-        target = values[tuple(idx_zero)]
-        target[:] = 0.0
-        nat_axis = nat_i if nat_i < top_i else nat_i - 1
-        pct_shape = [1] * target.ndim
-        pct_shape[nat_axis] = len(pct_values)
-        target[:] = pct_values.reshape(pct_shape)
-    if self.is_peatlands_upland_only():
-        ds['PCT_NAT_PFT'].values[:] = values
-        if (zerootherlandunits):
-            ds['PCT_NATVEG'] = ds['PCT_NATVEG'] * 0 + 100.0
-            nonveg=['PCT_WETLAND','PCT_LAKE','PCT_URBAN','PCT_CROP','PCT_GLACIER']
-            for v in nonveg:
-                if v in ds.variables:
-                    ds[v] = ds[v] * 0 + 0.0
-        return ds
-    upland_topounit = 3
-    if arr.sizes['topounit'] > upland_topounit:
-        idx_upland = [slice(None)] * arr.ndim
-        idx_upland[top_i] = upland_topounit
-        upland = values[tuple(idx_upland)]
-        upland[:] = 0.0
-        upland_shape = [1] * upland.ndim
-        upland_shape[nat_axis] = arr.sizes['natpft']
-        upland_pct_pft = self.peatlands_upland_pct_pft(arr.sizes['natpft']).values
-        upland[:] = upland_pct_pft.reshape(upland_shape)
-    ds['PCT_NAT_PFT'].values[:] = values
-
-    if (zerootherlandunits):
-        ds['PCT_NATVEG'] = ds['PCT_NATVEG'] * 0 + 100.0
-        nonveg=['PCT_WETLAND','PCT_LAKE','PCT_URBAN','PCT_CROP','PCT_GLACIER']
-        for v in nonveg:
-            if v in ds.variables:
-                ds[v] = ds[v] * 0 + 0.0
-    return ds
-
-
-def normalize_pct_nat_pft(self, ds, pct_pft):
-    """Make a site PFT vector compatible with the surface-data natpft axis."""
-    if 'PCT_NAT_PFT' not in ds:
-        raise KeyError('PCT_NAT_PFT not found in surface dataset')
-    if 'natpft' not in ds['PCT_NAT_PFT'].sizes:
-        raise KeyError('PCT_NAT_PFT does not have a natpft dimension')
-
-    pct_values = pct_pft.values if hasattr(pct_pft, 'values') else pct_pft
-    pct_values = np.asarray(pct_values, dtype=float)
-    if pct_values.ndim != 1:
-        raise ValueError(f'Expected 1D PCT_NAT_PFT vector, got shape {pct_values.shape}')
-
-    target_natpft = ds['PCT_NAT_PFT'].sizes['natpft']
-    if pct_values.size > target_natpft:
-        if target_natpft == 17 and pct_values.size == 22:
-            ds = self.expand_surface_pft_dimensions(ds, target_size=22)
-            target_natpft = ds['PCT_NAT_PFT'].sizes['natpft']
-        elif np.allclose(pct_values[target_natpft:], 0.0):
-            pct_values = pct_values[:target_natpft]
-        else:
-            raise ValueError(
-                f'Site PFT vector has {pct_values.size} entries but surface data has '
-                f'natpft={target_natpft}; refusing to drop nonzero PFT fractions'
-            )
-
-    if pct_values.size < target_natpft:
-        padded = np.zeros(target_natpft, dtype=float)
-        padded[:pct_values.size] = pct_values
-        pct_values = padded
-
-    return ds, xr.DataArray(pct_values, dims=['natpft'])
-
-
-def is_peatlands_sitegroup(self):
-    sitegroup = str(getattr(self, 'sitegroup', '')).strip().strip("'\"")
-    return sitegroup.lower() == 'peatlands'
-
-
-def expand_surface_pft_dimension(self, ds, dim_name, target_size=22):
-    """Expand one surface-data PFT dimension, preserving existing slices."""
-    if dim_name not in ds.sizes:
-        return ds
-    current_size = ds.sizes[dim_name]
-    if current_size == target_size:
-        return ds
-    if current_size > target_size:
-        raise ValueError(
-            f"Cannot shrink {dim_name} dimension from {current_size} to {target_size}"
-        )
-    if current_size != 17:
-        raise ValueError(
-            f"Peatlands surface-data upgrade only supports {dim_name} 17 -> {target_size}; "
-            f"found {dim_name}={current_size}"
-        )
-
-    print(f'Expanding {dim_name} dimension from {current_size} to {target_size}')
-    ds = ds.load()
-    expanded = xr.Dataset(attrs=dict(ds.attrs))
-
-    for coord_name, coord in ds.coords.items():
-        if coord_name == dim_name:
-            expanded.coords[coord_name] = xr.DataArray(np.arange(target_size), dims=[dim_name])
-        else:
-            expanded.coords[coord_name] = coord.copy(deep=True)
-    if dim_name not in expanded.coords:
-        expanded.coords[dim_name] = xr.DataArray(np.arange(target_size), dims=[dim_name])
-
-    for var_name, var_data in ds.data_vars.items():
-        if dim_name not in var_data.dims:
-            expanded[var_name] = var_data.copy(deep=True)
-            continue
-
-        pft_axis = var_data.dims.index(dim_name)
-        new_shape = list(var_data.shape)
-        new_shape[pft_axis] = target_size
-        new_values = np.zeros(new_shape, dtype=var_data.dtype)
-        old_index = [slice(None)] * var_data.ndim
-        new_index = [slice(None)] * var_data.ndim
-        old_index[pft_axis] = slice(0, current_size)
-        new_index[pft_axis] = slice(0, current_size)
-        new_values[tuple(new_index)] = var_data.values[tuple(old_index)]
-        expanded[var_name] = xr.DataArray(new_values, dims=var_data.dims, attrs=var_data.attrs)
-
-    ds.close()
-    return expanded
-
-
-def expand_surface_pft_dimensions(self, ds, target_size=22):
-    """Expand Peatlands surface PFT dimensions used by ELM surface files."""
-    for dim_name in ('natpft', 'lsmpft'):
-        ds = self.expand_surface_pft_dimension(ds, dim_name, target_size=target_size)
-    return ds
-
-
-def expand_natpft_dimension(self, ds, target_natpft=22):
-    """Backward-compatible wrapper for older call sites."""
-    return self.expand_surface_pft_dimension(ds, 'natpft', target_size=target_natpft)
-
-
-def prepare_peatlands_surface_data(self, ds, latvar, lonvar):
-    """Upgrade a standard surface file for the Peatlands sitegroup when needed."""
-    if not self.is_peatlands_sitegroup():
-        return ds
-
-    if 'topounit' not in ds.sizes:
-        base_elev = self.siteinfo['elev'] if hasattr(self, 'siteinfo') and 'elev' in self.siteinfo else 0.0
-        if self.is_peatlands_upland_only():
-            print('Adding upland-only Peatlands surface metadata')
-            ds = self.add_topounit_dimension(
-                ds, latvar, lonvar, num_topounits=1,
-                fracarea=[1.0], elevations=[base_elev + 10.0], distances=[300],
-                is_bog=[0], peat_depth=[0.0], till_ksat=[0.0]
-            )
-            ds.attrs['topounit_order'] = '1=upland_high'
-            ds.attrs['topounit_fraction_default'] = 'upland=1.0'
-            ds.attrs['topounit_source_index'] = str(self.peatlands_upland_source_topounit())
-        else:
-            print('Adding default 4-topounit Peatlands surface metadata')
-            fracarea = [0.25, 0.25, 0.25, 0.25]
-            elevations = [base_elev, base_elev + 2.925, base_elev + 3.075, base_elev + 10.0]
-            distances = [0, 150, 1, 300]
-            is_bog = [0, 1, 1, 0]
-            peat_depth = [2.0, 3.0, 3.0, 0.0]
-            till_ksat = [0.0, 0.1/86400.0, 0.1/86400.0, 0.0]
-            ds = self.add_topounit_dimension(
-                ds, latvar, lonvar, num_topounits=4,
-                fracarea=fracarea, elevations=elevations, distances=distances,
-                is_bog=is_bog, peat_depth=peat_depth, till_ksat=till_ksat
-            )
-            ds.attrs['topounit_order'] = '1=fen_low_outlet, 2=bog_hollow, 3=bog_hummock, 4=upland_high'
-            ds.attrs['topounit_fraction_default'] = 'fen=0.25, bog_hollow=0.25, bog_hummock=0.25, upland=0.25'
-    elif self.is_peatlands_upland_only():
-        source_topounit = self.peatlands_upland_source_topounit()
-        if source_topounit < 0 or source_topounit >= ds.sizes['topounit']:
-            raise IndexError(
-                f"Peatlands upland topounit index {source_topounit} is outside "
-                f"surface topounit dimension size {ds.sizes['topounit']}"
-            )
-        print(f'Keeping only Peatlands upland topounit {source_topounit}')
-        ds = ds.isel(topounit=[source_topounit]).copy()
-        ds = ds.assign_coords(topounit=xr.DataArray(np.arange(1), dims=['topounit']))
-        if 'TopounitFracArea' in ds:
-            ds['TopounitFracArea'] = ds['TopounitFracArea'] * 0 + 1.0
-        if 'topoPerGrid' in ds:
-            ds['topoPerGrid'] = ds['topoPerGrid'] * 0 + 1
-        if 'TopounitAveElv' in ds:
-            upland_elev = ds['TopounitAveElv'].isel(topounit=0, drop=True)
-            ds['TOPO2'] = upland_elev.copy(deep=True)
-            ds['MaxTopounitElv'] = upland_elev.copy(deep=True)
-        ds.attrs['topounit_order'] = '1=upland_high'
-        ds.attrs['topounit_fraction_default'] = 'upland=1.0'
-        ds.attrs['topounit_source_index'] = str(source_topounit)
-
-    ds = self.expand_surface_pft_dimensions(ds, target_size=22)
-    return ds
-
             
 def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
     #Extract surface, domain, or pftdyn data from a given regional or global file.
@@ -553,12 +230,9 @@ def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
         index = self.get_pointindices_list(mylat, mylon, mydata[latvar][:], mydata[lonvar][:], mask_grid=self.mask_grid) 
         self.subset_netcdf(index, infile,  outfile)
         ds = xr.open_dataset(outfile, mode='r+')
-
-        if (self.is_peatlands_sitegroup() and not isdomain and not ispftdyn):
-            ds = self.prepare_peatlands_surface_data(ds, latvar, lonvar)
         
         # Handle HumHol topounit dimension
-        if (self.humhol and not self.is_peatlands_sitegroup() and not isdomain):
+        if (self.humhol and not isdomain):
             if ('SPR' in self.site):
                 # SPRUCE is represented as three topounits:
                 # 1) boardwalk/fen bare ground, 2) bog hollow, 3) bog hummock.
@@ -588,11 +262,9 @@ def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
             #Set site PFT and soil texture
             if (sum(self.siteinfo['PCT_NAT_PFT']) > 0):
                 pct_nat_pft = xr.DataArray(self.siteinfo['PCT_NAT_PFT'], dims=['natpft'])
-                if 'SPR' in self.site and not self.is_peatlands_sitegroup():
+                if 'SPR' in self.site:
                     #Set up as 3 topounits, 1 bareground and 2 with the specified PFT fractions
                     ds = self.setpfts(ds, pct_nat_pft, first_bareground=True)  
-                elif self.is_peatlands_sitegroup():
-                    ds = self.set_peatlands_site_pfts(ds, pct_nat_pft)
                 else:
                     ds = self.setpfts(ds, pct_nat_pft)
             if (pft >=0):
@@ -604,10 +276,8 @@ def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
                 # For SPRUCE HUM_HOL, reserve topounit 1 for boardwalk/fen
                 # bare ground rather than assigning the selected vegetation
                 # PFT there.
-                if 'SPR' in self.site and not self.is_peatlands_sitegroup():
+                if 'SPR' in self.site:
                     ds = self.setpfts(ds, pct_nat_pft, first_bareground=True)
-                elif self.is_peatlands_sitegroup():
-                    ds = self.set_peatlands_site_pfts(ds, pct_nat_pft)
                 else:
                     ds = self.setpfts(ds, pct_nat_pft)
             print('Setting PFT_NAT_PFT to: ', self.siteinfo['PCT_NAT_PFT'])
@@ -641,7 +311,7 @@ def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
                 for year in self.siteinfo['transitions'].keys():
                     #Set PFTS for this year and all subsequent years
                     pct_nat_pft = xr.DataArray(self.siteinfo['transitions'][year]['PCT_NAT_PFT'], dims=['natpft'])
-                    if ('SPR' in self.site and not self.is_peatlands_sitegroup()):
+                    if ('SPR' in self.site):
                         #Set up as 3 topounits, 1 bareground and 2 with the specified PFT fractions
                         ds = self.setpfts(ds, pct_nat_pft, first_bareground=True, year=int(year))
                     else:
@@ -674,13 +344,9 @@ def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
                 mydata[lonvar][:], mask_grid=self.mask_grid)
         self.subset_netcdf(index, infile,  outfile, keep2d = False)
         ds = xr.open_dataset(outfile, mode='r+')
-
-        if (self.is_peatlands_sitegroup() and not isdomain and not ispftdyn):
-            ds = self.prepare_peatlands_surface_data(ds, latvar, lonvar)
         
         # Handle HumHol topounit dimension for point_list case
-        if (len(self.point_list) == 1 and getattr(self, 'humhol', False) and
-                not self.is_peatlands_sitegroup() and not isdomain):
+        if (len(self.point_list) == 1 and getattr(self, 'humhol', False) and not isdomain):
             print('Adding topounit dimension for HumHol point case')
             ds = self.add_topounit_dimension(ds, latvar, lonvar, num_topounits=2)
         
@@ -711,14 +377,7 @@ def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
         if (self.lat_bounds[1]-self.lat_bounds[0] < 180 and self.lon_bounds[1]-self.lon_bounds[0] < 360):
             index = self.get_pointindices_bbox(self.lat_bounds, self.lon_bounds, mydata[latvar][:], mydata[lonvar][:], \
                 mask_grid=self.mask_grid)
-            keep2d_subset = len(index) > 0 and isinstance(index[0], (tuple, list))
-            self.subset_netcdf(index, infile,  outfile, keep2d=keep2d_subset)
-            if (self.is_peatlands_sitegroup() and not isdomain and not ispftdyn):
-                ds = xr.open_dataset(outfile, mode='r+')
-                ds = self.prepare_peatlands_surface_data(ds, latvar, lonvar)
-                ds.to_netcdf(outfile+'.tmp')
-                ds.close()
-                os.system('mv '+outfile+'.tmp '+outfile)
+            self.subset_netcdf(index, infile,  outfile, keep2d=True)
             if (modifysurfdat):
                 print('Modifying surface data with user-specified modifications')
                 self.modify_ncinput_file(outfile, self.add_surfdata, file_description="surface data")
@@ -726,12 +385,6 @@ def makepointdata(self, filename, pft=-1, mylat=[], mylon=[]):
             print('Global simulation requested.  Using original file.')
             self.mask_grid=[]
             os.system('cp '+infile+' '+outfile)
-            if (self.is_peatlands_sitegroup() and not isdomain and not ispftdyn):
-                ds = xr.open_dataset(outfile, mode='r+')
-                ds = self.prepare_peatlands_surface_data(ds, latvar, lonvar)
-                ds.to_netcdf(outfile+'.tmp')
-                ds.close()
-                os.system('mv '+outfile+'.tmp '+outfile)
 
 
 def add_topounit_dimension(self, ds, latvar, lonvar, num_topounits=2, fracarea=None, \
@@ -862,10 +515,9 @@ def add_topounit_dimension(self, ds, latvar, lonvar, num_topounits=2, fracarea=N
             original_data = var_data.values
             # Expand the numpy array manually to avoid views
             expanded_shape = list(original_data.shape)
-            insert_axis = insert_pos if insert_pos >= 0 else max(0, len(expanded_shape) + insert_pos)
-            expanded_shape.insert(insert_axis, num_topounits)
-            expanded_data = np.expand_dims(original_data, axis=insert_axis)
-            expanded_data = np.broadcast_to(expanded_data, expanded_shape)
+            expanded_shape.insert(insert_pos, num_topounits)
+            expanded_data = np.broadcast_to(original_data[..., np.newaxis], expanded_shape)
+            expanded_data = np.moveaxis(expanded_data, -1, insert_pos)
             expanded_data = expanded_data.copy()  # Force a copy to make it writable
             new_ds[var_name] = xr.DataArray(expanded_data, dims=dims, attrs=var_data.attrs)
         else:

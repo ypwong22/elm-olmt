@@ -1,0 +1,5 @@
+flnr   15 0.15 0.28
+blower_u0 0 0 5
+vpd_min_moss 0 800 5000
+vpd_max_moss 0 100 3000
+vwc_moss_offset 0 0 0.25

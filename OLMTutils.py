@@ -62,35 +62,6 @@ def get_machine_info(machine_name=''):
         machine = 'docker'
     return machine, rootdir, inputdata, queue, project, hostname, apptainer_bind
 
-def pathfinder_compute_node_error(machine, configured_machine_name=''):
-    configured_machine_name = configured_machine_name.lower()
-    current_host = socket.gethostname()
-    current_host_lower = current_host.lower()
-    pathfinder_requested = (
-        machine == 'pathfinder' or
-        'pathfinder' in configured_machine_name or
-        'pflogin' in configured_machine_name
-    )
-    pathfinder_runtime = (
-        'pathfinder' in current_host_lower or
-        'pflogin' in current_host_lower or
-        os.path.exists('/projects/hpcl-cli185')
-    )
-    if (not pathfinder_requested and not pathfinder_runtime):
-        return
-
-    slurm_vars = ['SLURM_JOB_ID', 'SLURM_JOBID', 'SLURM_NODELIST', 'SLURM_JOB_NODELIST']
-    in_slurm_allocation = any(os.environ.get(var, '') != '' for var in slurm_vars)
-    host_is_login = 'pflogin' in current_host_lower
-
-    if (in_slurm_allocation and not host_is_login):
-        job_id = os.environ.get('SLURM_JOB_ID', os.environ.get('SLURM_JOBID', 'unknown'))
-        raise RuntimeError(
-            'elm_olmt.py should be run from a Pathfinder login node, not from a '
-            'compute node. Current host: '+current_host+'. Slurm job: '+job_id+
-            '. Start OLMT on pflogin and let OLMT submit/build jobs through Slurm.'
-        )
-
 #Function to get the available site groups
 def get_sitegroups(inputdata, sftp=None):
     PTCLM = inputdata + '/lnd/clm2/PTCLM'
@@ -136,25 +107,17 @@ def get_site_info(inputdata, sitegroup='AmeriFlux', sftp=None, use_crop=False):
     snum = 0
     if(use_crop):
         npfts = 15
-    elif sitegroup.lower() == 'peatlands':
-        npfts = 22
     else:
         npfts = 17
     for s in lines:
         if snum > 0:
-            fields = s.strip().split(',')
-            if len(fields) < 6:
-                snum += 1
-                continue
-            sitename = fields[0]
+            sitename = s.split(',')[0]
             siteinfo[sitename] = {}
-            siteinfo[sitename]['lon'] = float(fields[3])
-            siteinfo[sitename]['lat'] = float(fields[4])
-            siteinfo[sitename]['elev'] = float(fields[5])
+            siteinfo[sitename]['lon'] = float(s.split(',')[3])
+            siteinfo[sitename]['lat'] = float(s.split(',')[4])
             siteinfo[sitename]['PCT_NAT_PFT'] = np.zeros([npfts], float)
             siteinfo[sitename]['PCT_SAND'] = -999
             siteinfo[sitename]['PCT_CLAY'] = -999
-            siteinfo[sitename]['topounit'] = -1
             if(use_crop):
                 siteinfo[sitename]['PCT_CFT'] = np.zeros([36],float)
         snum += 1
@@ -165,22 +128,10 @@ def get_site_info(inputdata, sitegroup='AmeriFlux', sftp=None, use_crop=False):
     snum = 0
     for s in lines:
         if snum > 0:
-            fields = [field.strip() for field in s.strip().split(',')]
-            sitename = fields[0]
-            pair_start = 1
-            if len(fields) > 1 and len(fields[1]) > 0:
-                try:
-                    siteinfo[sitename]['topounit'] = int(fields[1])
-                    pair_start = 2
-                except ValueError:
-                    pair_start = 1
+            sitename = s.split(',')[0]
             for p in range(0, 5):
-                pct_idx = pair_start + p * 2
-                pft_idx = pct_idx + 1
-                if pft_idx >= len(fields):
-                    continue
-                ppct = float(fields[pct_idx])
-                pindex = int(fields[pft_idx])
+                pindex = int(s[:-1].split(',')[p * 2 + 2])
+                ppct = float(s[:-1].split(',')[p * 2 + 1])
                 if ppct > 0:
                     #siteinfo[sitename]['PCT_NAT_PFT'][pindex] = ppct
                     if(use_crop):
@@ -189,11 +140,6 @@ def get_site_info(inputdata, sitegroup='AmeriFlux', sftp=None, use_crop=False):
                         else:
                             siteinfo[sitename]['PCT_CFT'][pindex - 15] = ppct
                     else:
-                        if pindex >= len(siteinfo[sitename]['PCT_NAT_PFT']):
-                            raise IndexError(
-                                f"PFT index {pindex} in {pftdata_path} exceeds "
-                                f"natpft count {len(siteinfo[sitename]['PCT_NAT_PFT'])}"
-                            )
                         siteinfo[sitename]['PCT_NAT_PFT'][pindex] = ppct
         snum += 1
 
@@ -231,11 +177,6 @@ def get_site_info(inputdata, sitegroup='AmeriFlux', sftp=None, use_crop=False):
                                 else:
                                     siteinfo[sitename]['transitions'][trans_year]['PCT_CFT'][pindex - 15] = ppct
                             else:
-                                if pindex >= len(siteinfo[sitename]['transitions'][trans_year]['PCT_NAT_PFT']):
-                                    raise IndexError(
-                                        f"PFT index {pindex} in {landuse_path} exceeds "
-                                        f"natpft count {len(siteinfo[sitename]['transitions'][trans_year]['PCT_NAT_PFT'])}"
-                                    )
                                 siteinfo[sitename]['transitions'][trans_year]['PCT_NAT_PFT'][pindex] = ppct
                         siteinfo[sitename]['transitions'][trans_year]['HARVEST'] = harvpct
                 snum += 1
