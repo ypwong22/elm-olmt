@@ -1183,13 +1183,9 @@ def plot_ensemble(self, myvar, percentiles=[1, 5, 25, 50, 75, 95, 99], factor=1)
         months = np.arange(1, len(self.output['taxis']) + 1)
         x_axis = months
         x_label = "Month"
-
-        print(months)
     else:
         x_axis = self.output['taxis']
         x_label = "Time Step"
-
-        print(x_axis)
 
     y_label = myvar
     # Plot each percentile

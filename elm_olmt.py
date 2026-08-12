@@ -587,6 +587,9 @@ def main():
         # Submit the case
         print('Submitting case')
         jobnum_depend=-1
+
+        print(c, depends[c], jobnum[depends[c]])
+
         if (depends[c] >= 0):
             jobnum_depend = jobnum[depends[c]]
         # Set exeroot for all subsequent cases/sites so we don't have to rebuild

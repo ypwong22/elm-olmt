@@ -8,7 +8,8 @@ PY_SCRIPT="elm_olmt.py"       # python script to run
 #sites=(AU-ASM AU-How AU-Stp)
 #sites=(AU-Tum CH-Cha US-FPe US-GLE US-Ha1 US-Me2 US-UMB)   # edit this list as needed
 #sites=(US-NR1 US-GLE)
-sites=(FR-Pue)
+#sites=(CA-Qfo CH-Dav FI-Hyy RU-Fyo US-NR1)
+sites=(US-Var DE-Gri IT-MBo US-Ton)
 for site in "${sites[@]}"; do
     sed -i "14s/.*/sites = ${site}/" "$INPUT_FILE"
 

@@ -24,7 +24,7 @@ import pickle
 import model_ELM # auto-updated get_flux_obs
 from model_ELM.MCMC import sample_from_prior, log_posterior, estimate_burnin
 
-pft = 7
+pft = 9
 if pft == 2:
   site_list = ['CA-Qfo', 'CH-Dav', 'FI-Hyy', 'RU-Fyo', 'US-NR1']
   prefix_list = ['20260721','20260722','20260722','20260722','20260723']
@@ -38,9 +38,14 @@ elif pft == 5:
   prefix_list = ['20260809']
   base_case = '20260809_FR-Pue_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
 elif pft == 7:
-  site_list = ['DE-Hai', 'DK-Sor', 'FR-Pue', 'US-MMS', 'US-SRM']
-  prefix_list = ['20260809','20260809','20260809','20260809','20260809']
+  site_list = ['DE-Hai', 'DK-Sor', 'US-MMS', 'US-SRM']
+  prefix_list = ['20260809','20260809','20260809','20260809']
   base_case = '20260809_DE-Hai_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+elif pft == 9:
+  site_list = ['IT-Noe']
+  prefix_list = ['20260811']
+  base_case = '20260811_IT-Noe_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+
 
 output_years = range(1994, 2018)
 fluxnet_vars = ['NEE','EFLX_LH_TOT','FSH']
