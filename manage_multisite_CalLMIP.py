@@ -24,11 +24,11 @@ import pickle
 import model_ELM # auto-updated get_flux_obs
 from model_ELM.MCMC import sample_from_prior, log_posterior, estimate_burnin
 
-pft = 9
+pft = 10
 if pft == 2:
   site_list = ['CA-Qfo', 'CH-Dav', 'FI-Hyy', 'RU-Fyo', 'US-NR1']
-  prefix_list = ['20260721','20260722','20260722','20260722','20260723']
-  base_case = '20260721_CA-Qfo_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+  prefix_list = ['20260812','20260812','20260812','20260812','20260812']
+  base_case = '20260812_CA-Qfo_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
 elif pft == 1:
   site_list = ['DE-Tha', 'IT-Lav', 'NL-Loo']
   prefix_list = ['20260806', '20260806', '20260806']
@@ -45,7 +45,27 @@ elif pft == 9:
   site_list = ['IT-Noe']
   prefix_list = ['20260811']
   base_case = '20260811_IT-Noe_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+elif pft == 14:
+  site_list = ['US-SRG', 'US-Wkg']
+  prefix_list = ['20260811','20260811']
+  base_case = '20260811_US-SRG_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+elif pft == 10: 
+  site_list = ['US-Whs']
+  prefix_list = ['20260812']
+  base_case = '20260812_US-Whs_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+elif pft == 13: 
+  site_list = ['US-Var','DE-Gri','IT-MBo','US-Ton']
+  prefix_list = ['20260812','20260812','20260812','20260812']
+  base_case = '20260812_US-Var_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
 
+
+# debug case
+#site_list = ['US-MMS']
+#prefix_list = ['20260809']
+#base_case = '20260809_US-MMS_ICB20TRCNPRDCTCBC_Prior'
+#site_list = ['US-Var']
+#prefix_list = ['20260812']
+#base_case = '20260812_US-Var_ICB20TRCNPRDCTCBC_Prior'
 
 output_years = range(1994, 2018)
 fluxnet_vars = ['NEE','EFLX_LH_TOT','FSH']
