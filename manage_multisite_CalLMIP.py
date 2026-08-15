@@ -24,7 +24,7 @@ import pickle
 import model_ELM # auto-updated get_flux_obs
 from model_ELM.MCMC import sample_from_prior, log_posterior, estimate_burnin
 
-pft = 10
+pft = 7
 if pft == 2:
   site_list = ['CA-Qfo', 'CH-Dav', 'FI-Hyy', 'RU-Fyo', 'US-NR1']
   prefix_list = ['20260812','20260812','20260812','20260812','20260812']
@@ -92,7 +92,7 @@ mycase.all_sites = site_list
 
 obs_mcmc = fluxnet_vars
 mycase.nobs_vars = len(obs_mcmc)
-nwalkers = max(24, (mycase.nparms_ensemble+mycase.nobs_vars)*2)
+nwalkers = max(24, (mycase.nparms_ensemble+mycase.nobs_vars)*2) # increasing the walkers do not matter
 
 print(f"Running multisite MCMC for {len(mycase.all_sites)} sites: {mycase.all_sites}")
 mycase.MCMC(obs_mcmc, nwalkers=nwalkers, nsteps=10000, multisite=True, multiprefix=prefix_list)

@@ -66,7 +66,10 @@ def log_posterior(parms, sites, myvars, pmin, pmax, obs, obs_err, nparms_ensembl
                 
     except Exception as e:
         return -np.inf
-    
+        #import traceback
+        #traceback.print_exc()
+        #raise          # DEBUG; this might cause problem in the MCMC chain
+
     return log_likelihood
 
 # More sophisticated burn-in detection
@@ -83,11 +86,14 @@ def estimate_burnin(sampler, labels_model):
         print(f"Autocorrelation times: {tau}")
         print(f"Estimated burn-in: {burnin} steps")
         
-        return max(burnin, sampler.chain.shape[0] // 10)  # At least 10%
-        
+        #return max(burnin, sampler.chain.shape[0] // 10)  # At least 10%
+        nsteps_run = sampler.get_chain().shape[0]   # (nsteps, nwalkers, ndim)
+        return max(burnin, nsteps_run // 10)
+
     except Exception as e:
         print(f"Could not estimate autocorr time: {e}")
-        return sampler.chain.shape[0] // 3  # Fall back to 33%
+        nsteps_run = sampler.get_chain().shape[0] 
+        return nsteps_run // 3  # Fall back to 33%
 
 #-------------------------------- MCMC ------------------------------------------------------
 
@@ -162,6 +168,13 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False,
     # Initialize walkers in the prior space
     p0 = sample_from_prior(pmin, pmax, nwalkers)
 
+    # Smarter initialization suggested by claude; no effect
+    #p_center = np.array(list(self.default_parms) + 
+    #                    [0.1 * (pmax[i] ) for i in range(len(pmin)-nerr_parms, len(pmin))])
+    #scale = 1e-3 * (np.array(pmax) - np.array(pmin))
+    #p0 = p_center + scale * np.random.randn(nwalkers, nparms_ensemble)
+    #p0 = np.clip(p0, np.array(pmin) + 1e-9, np.array(pmax) - 1e-9)
+
     # Set up the sampler and run MCMC
     with multiprocessing.Pool() as pool:
         sampler = emcee.EnsembleSampler(
@@ -201,6 +214,16 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False,
         header=chain_header)
     print('Wrote '+str(samples.shape[0])+' posterior parameter samples to '+chain_file)
 
+    # plot the log posterior diagnostics to ensure chain is improving
+    af = np.mean(sampler.acceptance_fraction)
+    print(f"Mean acceptance fraction: {af:.3f}")
+
+    lp = sampler.get_log_prob()          # (nsteps, nwalkers)
+    print(f"log_prob: initial max={np.nanmax(lp[0]):.1f}, final max={np.nanmax(lp[-1]):.1f}")
+
+    plt.figure(); plt.plot(np.max(lp, axis=1)); plt.ylabel('max log_prob')
+    plt.savefig(MCMC_out + '/logprob_trace.png'); plt.close()
+
     best_idx = np.argmax(log_probs)
     best_parms = samples[best_idx, :n_model_parms]
     print("Mean of each parameter:")
@@ -227,6 +250,10 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False,
         plt.close()
 
     n_samples = samples.shape[0]
+
+    all_output = {}
+    all_default = {}
+
     for s in sites:
         output_dict = {v: [] for v in myvars}
         default_output_dict = {v: [] for v in myvars}  # ADD THIS: Store default predictions
@@ -363,6 +390,9 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False,
                     plt.savefig(f'{outdir_pred}/Residuals_{v}_comparison.png', dpi=300, bbox_inches='tight')
                     plt.close()
 
+        all_output[s] = output_dict
+        all_default[s] = default_output_dict
+
     # Write summary statistics to file
     summary_file = MCMC_out + '/prediction_summary_stats.txt'
     with open(summary_file, 'w') as f:
@@ -390,6 +420,9 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False,
             site_default_rmse = []
             site_mcmc_rmse = []
             site_improvements = []
+
+            output_dict = all_output[s]
+            default_output_dict = all_default[s]
             
             for v in myvars:
                 f.write(f"\nVariable: {v}\n")
