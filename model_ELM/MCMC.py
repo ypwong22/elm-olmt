@@ -166,6 +166,7 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False,
             nerr_parms = nerr_parms+1
 
     # Initialize walkers in the prior space
+    np.random.seed(999)
     p0 = sample_from_prior(pmin, pmax, nwalkers)
 
     # Smarter initialization suggested by claude; no effect
@@ -184,6 +185,7 @@ def MCMC(self, myvars, nwalkers=32, nsteps=100, fit_error=True, multisite=False,
             args=(sites, myvars, pmin, pmax, obs, obs_err, nparms_ensemble, nerr_parms, run_surrogate),
             #pool=pool
         )
+        sampler.random_state = np.random.get_state()   # fix the random seed inside sampler
         sampler.run_mcmc(p0, nsteps, progress=True)
 
     #Get the samples, likelihoods and best parameters

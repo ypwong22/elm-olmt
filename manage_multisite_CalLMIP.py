@@ -24,7 +24,7 @@ import pickle
 import model_ELM # auto-updated get_flux_obs
 from model_ELM.MCMC import sample_from_prior, log_posterior, estimate_burnin
 
-pft = 7
+pft = 5
 if pft == 2:
   site_list = ['CA-Qfo', 'CH-Dav', 'FI-Hyy', 'RU-Fyo', 'US-NR1']
   prefix_list = ['20260812','20260812','20260812','20260812','20260812']
