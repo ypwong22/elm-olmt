@@ -24,7 +24,7 @@ import pickle
 import model_ELM # auto-updated get_flux_obs
 from model_ELM.MCMC import sample_from_prior, log_posterior, estimate_burnin
 
-pft = 5
+pft = 13
 if pft == 2:
   site_list = ['CA-Qfo', 'CH-Dav', 'FI-Hyy', 'RU-Fyo', 'US-NR1']
   prefix_list = ['20260812','20260812','20260812','20260812','20260812']
@@ -51,12 +51,12 @@ elif pft == 14:
   base_case = '20260811_US-SRG_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
 elif pft == 10: 
   site_list = ['US-Whs']
-  prefix_list = ['20260812']
-  base_case = '20260812_US-Whs_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+  prefix_list = ['20260904']
+  base_case = '20260904_US-Whs_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
 elif pft == 13: 
   site_list = ['US-Var','DE-Gri','IT-MBo','US-Ton']
-  prefix_list = ['20260812','20260812','20260812','20260812']
-  base_case = '20260812_US-Var_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
+  prefix_list = ['20260904','20260904','20260904','20260904']
+  base_case = '20260904_US-Var_ICB20TRCNPRDCTCBC_Prior' # use the first case to drive the MCMC
 
 
 # debug case

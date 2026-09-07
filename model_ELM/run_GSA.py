@@ -18,9 +18,25 @@ def GSA(self, myvars, n_saltelli=8192):
         pbounds[p,0]=self.ensemble_pmin[p]
         pbounds[p,1]=self.ensemble_pmax[p]
 
+    # SALib treats duplicate entries in 'names' as groups (extract_group_names),
+    # which makes sobol.analyze compute D from the number of unique names while
+    # saltelli.sample uses num_vars. When the same parameter is calibrated for
+    # multiple PFTs the names repeat, so build unique labels (name_pft<pft>,
+    # disambiguated by index if still colliding) to keep both sides consistent.
+    unique_names = []
+    seen = {}
+    for p in range(0, self.nparms_ensemble):
+        base = '%s_pft%d' % (self.ensemble_parms[p], self.ensemble_pfts[p])
+        if base in seen:
+            seen[base] += 1
+            base = '%s_%d' % (base, p)
+        else:
+            seen[base] = 0
+        unique_names.append(base)
+
     problem = {
             'num_vars': self.nparms_ensemble,
-            'names': self.ensemble_parms,
+            'names': unique_names,
             'bounds': pbounds
             }
     psamples = saltelli.sample(problem, n_saltelli)
