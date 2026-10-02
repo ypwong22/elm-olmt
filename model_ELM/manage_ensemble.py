@@ -406,7 +406,7 @@ if (not options.UQ_only):
                   ' apptainer exec --bind '+mycase.apptainer_bind+' --pwd '+rundir+ \
                   ' --env OMPI_MCA_pml=ob1 --env OMPI_MCA_btl=self,vader,tcp  ' +mycase.apptainer+' '+exe_path
               else:
-                command = 'srun -n 1 -c '+str(cpus_per_task)+ node_arg + ' '+exe_path
+                command = 'srun --exclusive -N 1 -n 1 -c '+str(cpus_per_task)+' --cpu-bind=threads'+ node_arg+' '+exe_path
             else:
               # build srun using nodes/ntasks-per-node and distribution to avoid packing
               if (mycase.apptainer != ''):
@@ -415,8 +415,8 @@ if (not options.UQ_only):
                   ' apptainer exec --bind '+mycase.apptainer_bind+' --pwd '+rundir+ \
                   ' --env OMPI_MCA_pml=ob1 --env OMPI_MCA_btl=self,vader,tcp  ' +mycase.apptainer+' '+exe_path
               else:
-                command = 'srun --nodes='+str(nodes_per_run)+ ' --ntasks='+str(mycase.np)+ ' --ntasks-per-node='+str(tpnode)+ \
-                  ' -c '+str(cpus_per_task)+ ' '+exe_path
+                command = 'srun --exclusive --nodes='+str(nodes_per_run)+ ' --ntasks='+str(mycase.np)+ ' --ntasks-per-node='+str(tpnode)+ \
+                  ' -c '+str(cpus_per_task)+ ' --cpu-bind=threads '+exe_path
           else:
             exe_name = 'elm_offline_driver' if getattr(mycase, 'offline_driver', False) else 'e3sm.exe'
             command = mycase.exeroot+'/'+exe_name
